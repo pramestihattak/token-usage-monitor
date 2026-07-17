@@ -8,6 +8,10 @@ A private-by-design native macOS menu-bar app for monitoring Claude Code and Ope
 
 **[Download the latest universal DMG](https://github.com/pramestihattak/token-usage-monitor/releases/latest)**
 
+## Preview
+
+![Token Usage Monitor showing Claude and Codex quota windows, token totals, and IDR cost estimates](token-usage-monitor-live-preview.png)
+
 ## Features
 
 - One compact menu-bar icon with separate Claude and Codex cards.

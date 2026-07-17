@@ -4,4 +4,3 @@ dist/
 .DS_Store
 *.xcodeproj/
 /token-monitor-live-preview.png
-/token-usage-monitor-live-preview.png
