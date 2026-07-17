@@ -20,7 +20,11 @@ final class NotificationManager {
 
     func requestAuthorizationIfNeeded(enabled: Bool) async {
         guard enabled else { return }
-        _ = try? await center.requestAuthorization(options: [.alert, .sound])
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            center.requestAuthorization(options: [.alert, .sound]) { _, _ in
+                continuation.resume()
+            }
+        }
     }
 
     func evaluate(_ snapshots: [UsageSnapshot], enabled: Bool) async {
@@ -33,7 +37,12 @@ final class NotificationManager {
             content.sound = .default
             let reset = event.window.resetsAt.map { Int($0.timeIntervalSince1970) } ?? 0
             let identifier = "token-monitor.\(event.provider.rawValue).\(event.window.kind.rawValue).\(event.threshold).\(reset)"
-            try? await center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
+            let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                center.add(request) { _ in
+                    continuation.resume()
+                }
+            }
         }
         if let data = try? JSONEncoder().encode(deduplicator) {
             defaults.set(data, forKey: "notificationDeduplicator")
