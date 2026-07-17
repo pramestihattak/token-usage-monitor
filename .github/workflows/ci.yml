@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-package:
+    runs-on: macos-14
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Run tests
+        run: swift test --disable-sandbox
+
+      - name: Build universal DMG
+        env:
+          APP_VERSION: 0.0.0
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: ./scripts/package-dmg.sh
+
+      - name: Verify checksum
+        working-directory: dist
+        run: shasum -a 256 -c Token-Usage-Monitor-0.0.0-universal.dmg.sha256
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v7
+        with:
+          name: Token-Usage-Monitor-${{ github.sha }}
+          path: |
+            dist/Token-Usage-Monitor-0.0.0-universal.dmg
+            dist/Token-Usage-Monitor-0.0.0-universal.dmg.sha256
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
