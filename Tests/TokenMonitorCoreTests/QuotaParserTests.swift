@@ -28,6 +28,33 @@ import Testing
     #expect(result.first?.usedPercent == 12)
 }
 
+@Test func processFailuresDoNotExposeCLIStandardError() throws {
+    let root = try temporaryDirectory()
+    let fake = try writeFile(
+        "#!/bin/sh\necho 'secret diagnostic value' >&2\nexit 7\n",
+        at: root.appendingPathComponent("codex"),
+        executable: true
+    )
+    do {
+        _ = try ProcessRunner.run(executable: fake, arguments: [], timeout: 5)
+        Issue.record("Expected the fake process to fail")
+    } catch let error as MonitorError {
+        #expect(error.errorDescription == "codex exited with code 7.")
+        #expect(error.errorDescription?.contains("secret diagnostic value") == false)
+    }
+}
+
+@Test func processOutputIsBounded() throws {
+    let root = try temporaryDirectory()
+    let fake = try writeFile(
+        "#!/bin/sh\nyes x | head -c 2000000\n",
+        at: root.appendingPathComponent("codex"),
+        executable: true
+    )
+    let output = try ProcessRunner.run(executable: fake, arguments: [], timeout: 5)
+    #expect(output.stdout.utf8.count <= 1_024 * 1_024)
+}
+
 @Test func parsesClaudeTerminalTranscriptAndRelativeReset() throws {
     let now = DateParsing.iso8601("2026-07-17T00:00:00Z")!
     let transcript = "\u{001B}[32mCurrent session (5 hours)\u{001B}[0m\n42% used · Resets in 2 hours 15 minutes\nCurrent week (7 days)\n81% used · Resets in 3 days"

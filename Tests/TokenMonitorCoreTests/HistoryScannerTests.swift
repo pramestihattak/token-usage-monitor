@@ -64,3 +64,23 @@ import Testing
     try writeFile(fixture, at: root.appendingPathComponent("history/session.jsonl"))
     #expect(ClaudeHistoryScanner(roots: [root.appendingPathComponent("history")]).recentWorkingDirectory()?.path == project.path)
 }
+
+@Test func historyScannerDoesNotFollowJSONLSymlinksOutsideItsRoot() throws {
+    let root = try temporaryDirectory()
+    let history = root.appendingPathComponent("history")
+    try FileManager.default.createDirectory(at: history, withIntermediateDirectories: true)
+    let outside = try writeFile(
+        #"{"type":"assistant","timestamp":"2026-07-17T01:00:00Z","sessionId":"s","message":{"id":"m","model":"claude-sonnet-5","usage":{"input_tokens":10}}}"#,
+        at: root.appendingPathComponent("outside.jsonl")
+    )
+    try FileManager.default.createSymbolicLink(
+        at: history.appendingPathComponent("linked.jsonl"),
+        withDestinationURL: outside
+    )
+
+    let result = try ClaudeHistoryScanner(roots: [history]).scan(
+        now: DateParsing.iso8601("2026-07-17T12:00:00Z")!,
+        calendar: utcCalendar()
+    )
+    #expect(result.isEmpty)
+}

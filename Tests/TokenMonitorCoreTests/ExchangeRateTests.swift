@@ -30,6 +30,18 @@ import Testing
     )
     try cache.save(quote)
     #expect(cache.load() == quote)
+    try FileManager.default.setAttributes(
+        [.posixPermissions: 0o755],
+        ofItemAtPath: cache.fileURL.deletingLastPathComponent().path
+    )
+    try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: cache.fileURL.path)
+    #expect(cache.load() == quote)
+    let migratedDirectoryPermissions = try FileManager.default
+        .attributesOfItem(atPath: cache.fileURL.deletingLastPathComponent().path)[.posixPermissions] as? NSNumber
+    let migratedFilePermissions = try FileManager.default
+        .attributesOfItem(atPath: cache.fileURL.path)[.posixPermissions] as? NSNumber
+    #expect(migratedDirectoryPermissions?.intValue == 0o700)
+    #expect(migratedFilePermissions?.intValue == 0o600)
     try writeFile("not-json", at: cache.fileURL)
     #expect(cache.load() == nil)
 }

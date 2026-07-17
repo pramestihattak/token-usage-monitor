@@ -15,13 +15,7 @@ public struct ExecutableLocator: Sendable {
     public func locate(_ provider: ProviderID, override: String? = nil) -> URL? {
         if let override, !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let url = URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
-            if FileManager.default.isExecutableFile(atPath: url.path) { return url }
-        }
-
-        let executableName = provider == .claude ? "claude" : "codex"
-        for directory in environmentPath.split(separator: ":") {
-            let candidate = URL(fileURLWithPath: String(directory)).appendingPathComponent(executableName)
-            if FileManager.default.isExecutableFile(atPath: candidate.path) { return candidate }
+            if let trusted = validatedExecutable(url) { return trusted }
         }
 
         let candidates: [URL]
@@ -40,6 +34,30 @@ public struct ExecutableLocator: Sendable {
                 URL(fileURLWithPath: "/usr/local/bin/codex"),
             ]
         }
-        return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
+        if let known = candidates.compactMap(validatedExecutable).first {
+            return known
+        }
+
+        let executableName = provider == .claude ? "claude" : "codex"
+        for directory in environmentPath.split(separator: ":", omittingEmptySubsequences: true) {
+            let path = String(directory)
+            guard path.hasPrefix("/") else { continue }
+            let candidate = URL(fileURLWithPath: path).appendingPathComponent(executableName)
+            if let trusted = validatedExecutable(candidate) { return trusted }
+        }
+        return nil
+    }
+
+    private func validatedExecutable(_ url: URL) -> URL? {
+        let resolved = url.resolvingSymlinksInPath().standardizedFileURL
+        let manager = FileManager.default
+        guard manager.isExecutableFile(atPath: resolved.path),
+              let attributes = try? manager.attributesOfItem(atPath: resolved.path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue,
+              permissions & 0o022 == 0 else {
+            return nil
+        }
+        return resolved
     }
 }

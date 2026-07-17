@@ -114,7 +114,7 @@ public struct CodexQuotaLogScanner: Sendable {
             }
         }
         for (file, _) in files.sorted(by: { $0.1 > $1.1 }).prefix(20) {
-            guard let contents = try? String(contentsOf: file, encoding: .utf8) else { continue }
+            guard let contents = BoundedTextFile.read(file) else { continue }
             for line in contents.split(separator: "\n").reversed() {
                 guard line.contains("\"rate_limits\"") || line.contains("\"rateLimits\"") else { continue }
                 guard let data = String(line).data(using: .utf8),
@@ -237,6 +237,26 @@ struct ProcessOutput: Sendable {
     var exitCode: Int32
 }
 
+private final class BoundedPipeCollector: @unchecked Sendable {
+    static let maximumBytes = 1_024 * 1_024
+
+    private let lock = NSLock()
+    private var data = Data()
+
+    func append(_ chunk: Data) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard data.count < Self.maximumBytes else { return }
+        data.append(chunk.prefix(Self.maximumBytes - data.count))
+    }
+
+    func string() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return String(decoding: data, as: UTF8.self)
+    }
+}
+
 enum ProcessRunner {
     static func run(
         executable: URL,
@@ -253,6 +273,20 @@ enum ProcessRunner {
         process.standardOutput = stdout
         process.standardError = stderr
         process.standardInput = stdin
+
+        let outputCollector = BoundedPipeCollector()
+        let errorCollector = BoundedPipeCollector()
+        stdout.fileHandleForReading.readabilityHandler = { handle in
+            outputCollector.append(handle.availableData)
+        }
+        stderr.fileHandleForReading.readabilityHandler = { handle in
+            errorCollector.append(handle.availableData)
+        }
+        defer {
+            stdout.fileHandleForReading.readabilityHandler = nil
+            stderr.fileHandleForReading.readabilityHandler = nil
+        }
+
         try process.run()
         if let input, let data = input.data(using: .utf8) {
             try stdin.fileHandleForWriting.write(contentsOf: data)
@@ -265,17 +299,20 @@ enum ProcessRunner {
             process.terminate()
             usleep(100_000)
             if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            process.waitUntilExit()
             throw MonitorError.commandTimedOut(executable.lastPathComponent)
         }
-        let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
-        let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
+        stdout.fileHandleForReading.readabilityHandler = nil
+        stderr.fileHandleForReading.readabilityHandler = nil
+        outputCollector.append(stdout.fileHandleForReading.readDataToEndOfFile())
+        errorCollector.append(stderr.fileHandleForReading.readDataToEndOfFile())
         let result = ProcessOutput(
-            stdout: String(decoding: outputData, as: UTF8.self),
-            stderr: String(decoding: errorData, as: UTF8.self),
+            stdout: outputCollector.string(),
+            stderr: errorCollector.string(),
             exitCode: process.terminationStatus
         )
         if result.exitCode != 0 && result.stdout.isEmpty {
-            throw MonitorError.commandFailed(result.stderr.isEmpty ? "\(executable.lastPathComponent) exited with code \(result.exitCode)." : result.stderr)
+            throw MonitorError.commandFailed("\(executable.lastPathComponent) exited with code \(result.exitCode).")
         }
         return result
     }
@@ -350,8 +387,14 @@ enum PTYRunner {
         var buffer = [UInt8](repeating: 0, count: 8_192)
         while true {
             let count = Darwin.read(descriptor, &buffer, buffer.count)
-            if count > 0 { data.append(contentsOf: buffer[0..<count]) }
-            else { break }
+            if count > 0 {
+                if data.count < BoundedPipeCollector.maximumBytes {
+                    let remaining = BoundedPipeCollector.maximumBytes - data.count
+                    data.append(contentsOf: buffer[0..<min(count, remaining)])
+                }
+                continue
+            }
+            break
         }
     }
 }

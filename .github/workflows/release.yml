@@ -6,7 +6,9 @@ on:
       - "v*.*.*"
 
 permissions:
+  attestations: write
   contents: write
+  id-token: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -17,7 +19,7 @@ jobs:
     runs-on: macos-15
     steps:
       - name: Check out source
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 0
 
@@ -43,6 +45,11 @@ jobs:
       - name: Verify checksum
         working-directory: dist
         run: shasum -a 256 -c "Token-Usage-Monitor-${{ steps.version.outputs.value }}-universal.dmg.sha256"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: "dist/Token-Usage-Monitor-${{ steps.version.outputs.value }}-universal.dmg"
 
       - name: Publish GitHub Release
         env:

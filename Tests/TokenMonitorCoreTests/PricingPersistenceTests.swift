@@ -32,6 +32,24 @@ import Testing
     )
     try cache.save([snapshot])
     #expect(cache.load() == [snapshot])
+    let directoryPermissions = try FileManager.default
+        .attributesOfItem(atPath: cache.fileURL.deletingLastPathComponent().path)[.posixPermissions] as? NSNumber
+    let filePermissions = try FileManager.default
+        .attributesOfItem(atPath: cache.fileURL.path)[.posixPermissions] as? NSNumber
+    #expect(directoryPermissions?.intValue == 0o700)
+    #expect(filePermissions?.intValue == 0o600)
+    try FileManager.default.setAttributes(
+        [.posixPermissions: 0o755],
+        ofItemAtPath: cache.fileURL.deletingLastPathComponent().path
+    )
+    try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: cache.fileURL.path)
+    #expect(cache.load() == [snapshot])
+    let migratedDirectoryPermissions = try FileManager.default
+        .attributesOfItem(atPath: cache.fileURL.deletingLastPathComponent().path)[.posixPermissions] as? NSNumber
+    let migratedFilePermissions = try FileManager.default
+        .attributesOfItem(atPath: cache.fileURL.path)[.posixPermissions] as? NSNumber
+    #expect(migratedDirectoryPermissions?.intValue == 0o700)
+    #expect(migratedFilePermissions?.intValue == 0o600)
     try writeFile("not json", at: cache.fileURL)
     #expect(cache.load().isEmpty)
 }
@@ -55,4 +73,18 @@ import Testing
     let executable = try writeFile("#!/bin/sh\n", at: root.appendingPathComponent("custom-claude"), executable: true)
     let locator = ExecutableLocator(environmentPath: "", homeDirectory: root)
     #expect(locator.locate(.claude, override: executable.path) == executable)
+}
+
+@Test func executableLocatorPrefersKnownSafePathAndRejectsWritableExecutables() throws {
+    let root = try temporaryDirectory()
+    let known = try writeFile("#!/bin/sh\n", at: root.appendingPathComponent(".local/bin/claude"), executable: true)
+    let pathDirectory = root.appendingPathComponent("path-bin")
+    let pathExecutable = try writeFile("#!/bin/sh\n", at: pathDirectory.appendingPathComponent("claude"), executable: true)
+    try FileManager.default.setAttributes([.posixPermissions: 0o777], ofItemAtPath: pathExecutable.path)
+
+    let locator = ExecutableLocator(environmentPath: pathDirectory.path, homeDirectory: root)
+    #expect(locator.locate(.claude) == known)
+
+    try FileManager.default.removeItem(at: known)
+    #expect(locator.locate(.claude) == nil)
 }

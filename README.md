@@ -71,7 +71,17 @@ Token Usage Monitor is local-first:
 - It does not retain conversation text, prompts, provider credentials, analytics, or telemetry.
 - It uses the existing authenticated Claude Code and Codex command-line tools instead of reading their credentials.
 - Cached snapshots and preferences remain under the current user’s Library/Application Support and UserDefaults storage.
-- The only app-initiated network request is the USD/IDR exchange-rate lookup.
+- The app directly contacts only the USD/IDR exchange-rate service. The Claude Code and Codex processes it launches may contact Anthropic and OpenAI to retrieve current quota data.
+- External CLI output is reduced to generic errors before snapshots are cached.
+
+## Security
+
+- Claude Code runs with `--safe-mode`, which disables project and user customizations such as hooks, plugins, MCP servers, skills, and custom commands.
+- CLI executables are resolved to regular files and rejected when group- or world-writable.
+- Local cache directories and files are written with `0700` and `0600` permissions.
+- Release workflows use least-privilege GitHub tokens, immutable Action revisions, and build-provenance attestations.
+
+Please report vulnerabilities privately using [GitHub’s security advisory form](https://github.com/pramestihattak/token-usage-monitor/security/advisories/new), not a public issue.
 
 ## Settings
 

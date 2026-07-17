@@ -57,15 +57,12 @@ public struct ExchangeRateCache: Sendable {
     }
 
     public func load() -> ExchangeRateQuote? {
+        SecureStorage.hardenExisting(fileURL)
         guard let data = try? Data(contentsOf: fileURL) else { return nil }
         return try? JSONDecoder.monitorDecoder.decode(ExchangeRateQuote.self, from: data)
     }
 
     public func save(_ quote: ExchangeRateQuote) throws {
-        try FileManager.default.createDirectory(
-            at: fileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try JSONEncoder.monitorEncoder.encode(quote).write(to: fileURL, options: .atomic)
+        try SecureStorage.write(JSONEncoder.monitorEncoder.encode(quote), to: fileURL)
     }
 }

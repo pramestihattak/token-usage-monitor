@@ -34,7 +34,7 @@ public struct ClaudeHistoryScanner: Sendable {
                modified < cutoff {
                 continue
             }
-            guard let contents = try? String(contentsOf: file, encoding: .utf8) else { continue }
+            guard let contents = BoundedTextFile.read(file) else { continue }
             for line in contents.split(separator: "\n", omittingEmptySubsequences: true) {
                 guard let object = jsonObject(line),
                       object["type"] as? String == "assistant",
@@ -121,7 +121,7 @@ public struct CodexHistoryScanner: Sendable {
         var sessions: [String: CodexSession] = [:]
 
         for file in jsonlFiles(under: roots) {
-            guard let contents = try? String(contentsOf: file, encoding: .utf8) else { continue }
+            guard let contents = BoundedTextFile.read(file) else { continue }
             let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             var sessionID = file.deletingPathExtension().lastPathComponent
             var currentModel = "unknown"
@@ -214,18 +214,40 @@ private func aggregate(_ events: [UsageEvent], calendar: Calendar) -> [DailyUsag
 private func jsonlFiles(under roots: [URL]) -> [URL] {
     let manager = FileManager.default
     let keys: [URLResourceKey] = [.isRegularFileKey, .contentModificationDateKey]
-    var result: [URL] = []
+    var result: Set<URL> = []
     for root in roots where manager.fileExists(atPath: root.path) {
+        let resolvedRoot = root.resolvingSymlinksInPath().standardizedFileURL
+        let rootPrefix = resolvedRoot.path.hasSuffix("/") ? resolvedRoot.path : resolvedRoot.path + "/"
         guard let enumerator = manager.enumerator(
-            at: root,
+            at: resolvedRoot,
             includingPropertiesForKeys: keys,
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else { continue }
-        for case let file as URL in enumerator where file.pathExtension == "jsonl" {
-            result.append(file)
+        for case let candidate as URL in enumerator where candidate.pathExtension == "jsonl" {
+            let file = candidate.resolvingSymlinksInPath().standardizedFileURL
+            guard file.path.hasPrefix(rootPrefix),
+                  (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                continue
+            }
+            result.insert(file)
         }
     }
-    return result
+    return Array(result)
+}
+
+enum BoundedTextFile {
+    static let maximumBytes = 256 * 1_024 * 1_024
+
+    static func read(_ url: URL) -> String? {
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+              values.isRegularFile == true,
+              let size = values.fileSize,
+              size <= maximumBytes,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
 }
 
 private func jsonObject(_ line: Substring) -> [String: Any]? {

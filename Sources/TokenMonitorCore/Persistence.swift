@@ -14,15 +14,36 @@ public struct SnapshotCache: Sendable {
     }
 
     public func load() -> [UsageSnapshot] {
+        SecureStorage.hardenExisting(fileURL)
         guard let data = try? Data(contentsOf: fileURL) else { return [] }
         return (try? JSONDecoder.monitorDecoder.decode([UsageSnapshot].self, from: data)) ?? []
     }
 
     public func save(_ snapshots: [UsageSnapshot]) throws {
-        let manager = FileManager.default
-        try manager.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let data = try JSONEncoder.monitorEncoder.encode(snapshots)
+        try SecureStorage.write(data, to: fileURL)
+    }
+}
+
+enum SecureStorage {
+    static func hardenExisting(_ fileURL: URL) {
+        let manager = FileManager.default
+        let directory = fileURL.deletingLastPathComponent()
+        if manager.fileExists(atPath: directory.path) {
+            try? manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        }
+        if manager.fileExists(atPath: fileURL.path) {
+            try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        }
+    }
+
+    static func write(_ data: Data, to fileURL: URL) throws {
+        let manager = FileManager.default
+        let directory = fileURL.deletingLastPathComponent()
+        try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+        try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         try data.write(to: fileURL, options: .atomic)
+        try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
 }
 
